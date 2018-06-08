@@ -1,17 +1,17 @@
 -- This file was automatically generated for the LuaDist project.
 
 package = "turbo"
-version = "2.1-0"
+version = "2.1-1"
 supported_platforms = {"linux", "macosx"}
 -- LuaDist source
 source = {
-  tag = "2.1-0",
+  tag = "2.1-1",
   url = "git://github.com/LuaDist-testing/turbo.git"
 }
 -- Original source
 -- source = {
 --     url = "git://github.com/kernelsauce/turbo",
---     tag = "v2.1.0"
+--     tag = "v2.1.1"
 -- }
 description = {
     summary = "A networking suite for LuaJIT2, optimized for performance.",

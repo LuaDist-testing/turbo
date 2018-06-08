@@ -656,6 +656,7 @@ if platform.__LINUX__ and not _G.__TURBO_USE_LUASOCKET__ then
                       fd,
                       errno,
                       socket.strerror(errno)))
+                return
             end
         end
         if sz == 0 then
@@ -1499,6 +1500,8 @@ elseif _G.TURBO_SSL then
             end
         elseif err == "wantread" then
             self:_add_io_state(ioloop.READ)
+        else
+            self:close()
         end
     end
 
