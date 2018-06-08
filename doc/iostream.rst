@@ -12,7 +12,7 @@ The IOStream class is implemented through the use of the IOLoop class, and are u
 and support callbacks for most of its operations. For read operations the class supports methods suchs as read until delimiter, read n bytes and read until close. The class has
 its own write buffer and there is no need to buffer data at any other level. The default maximum write buffer is defined to 100 MB. This can be defined on class initialization.
 
-.. function:: IOStream(fd, io_loop, max_buffer_size)
+.. function:: IOStream(fd, io_loop, max_buffer_size, kwargs)
 
 	Create a new IOStream instance.
 
@@ -22,12 +22,17 @@ its own write buffer and there is no need to buffer data at any other level. The
 	:type io_loop: IOLoop object
 	:param max_buffer_size: The maximum number of bytes that can be held in internal buffer before flushing must occur. If none is set, 104857600 are used as default.
 	:type max_buffer_size: Number
+	:param kwargs: Keyword arguments
+	:type kwargs: Table
 	:rtype: IOStream object
 
-.. function:: IOStream:connect(address, port, family, callback, errhandler, arg)
+	Available keyword arguments:
 
-	Connect to a address without blocking. To successfully use this method it is neccessary to check
-	the return value, and also assign a error handler function.
+	* ``dns_timeout`` - (Number) Timeout for DNS lookup on connect.
+
+.. function:: IOStream:connect(address, port, family, callback, fail_callback, arg)
+
+	Connect to a address without blocking. To successfully use this method it is neccessary to use a success and a fail callback function to properly handle both cases.
 
 	:param host: The host to connect to. Either hostname or IP.
 	:type host: String
@@ -36,35 +41,34 @@ its own write buffer and there is no need to buffer data at any other level. The
 	:param family: Socket family. Optional. Pass nil to guess.
 	:param callback: Optional callback for "on successfull connect"
 	:type callback: Function
-	:param errhandler: Optional callback for "on error". Called with errno and its string representation as arguments.
-	:type errhandler: Function
-	:param arg: Optional argument for callback. callback and errhandler are called with this as first argument.
-	:rtype: Number. -1 + error message on error, 0 on success.
+	:param fail_callback: Optional callback for "on error". Called with errno and its string representation as arguments.
+	:type fail_callback: Function
+	:param arg: Optional argument for callback. callback and fail_callback are called with this as first argument.
 
 .. function:: IOStream:read_until(delimiter, callback, arg)
 
-	Read until delimiter, then call callback with recieved data. The callback
-	recieves the data read as a parameter. Delimiter is plain text, and does
+	Read until delimiter, then call callback with received data. The callback
+	receives the data read as a parameter. Delimiter is plain text, and does
 	not support Lua patterns. See read_until_pattern for that functionality.
 	read_until should be used instead of read_until_pattern wherever possible
 	because of the overhead of doing pattern matching.
 
 	:param delimiter: Delimiter sequence, text or binary.
 	:type delimiter: String
-	:param callback:  Callback function. The function is called with the recieved data as parameter.
+	:param callback:  Callback function. The function is called with the received data as parameter.
 	:type callback: Function
 	:param arg: Optional argument for callback. If arg is given then it will be the first argument for the callback and the data will be the second.
 
 .. function:: IOStream:read_until_pattern(pattern, callback, arg)
 
-	Read until pattern is matched, then call callback with recieved data.
-	The callback recieves the data read as a parameter. If you only are
+	Read until pattern is matched, then call callback with received data.
+	The callback receives the data read as a parameter. If you only are
 	doing plain text matching then using read_until is recommended for
 	less overhead.
 
 	:param pattern: Lua pattern string.
 	:type pattern: String
-	:param callback: Callback function. The function is called with the recieved data as parameter.
+	:param callback: Callback function. The function is called with the received data as parameter.
 	:type callback: Function
 	:param arg: Optional argument for callback. If arg is given then it will be the first argument for the callback and the data will be the second.
 
@@ -77,7 +81,7 @@ its own write buffer and there is no need to buffer data at any other level. The
 
 	:param num_bytes: The amount of bytes to read.
 	:type num_bytes: Number
-	:param callback: Callback function. The function is called with the recieved data as parameter.
+	:param callback: Callback function. The function is called with the received data as parameter.
 	:type callback: Function
 	:param arg: Optional argument for callback. If arg is given then it will be the first argument for the callback and the data will be the second.
 	:param streaming_callback: Optional callback to be called as chunks become available.
@@ -204,7 +208,7 @@ must be set.
 	* "_ssl_ctx" - SSL_CTX pointer created with context functions in crypto.lua.
 	* "_type" - Optional number, 0 or 1. 0 indicates that the context is a server context, and 1 indicates a client context. If not set, it is presumed to be a server context.
 
-	:param fd: File descriptor, either open or closed. If closed then, the ``turbo.iostream IOStream:connect()`` method can be used to connect.
+	:param fd: File descriptor, either open or closed. If closed then, the ``turbo.iostream SSLIOStream:connect()`` method can be used to connect.
 	:type fd: Number
 	:param ssl_options: SSL arguments.
 	:type ssl_options: Table
@@ -212,13 +216,13 @@ must be set.
 	:type io_loop: IOLoop class instance
 	:param max_buffer_size: The maximum number of bytes that can be held in internal buffer before flushing must occur. If none is set, 104857600 are used as default.
 	:type max_buffer_size: Number
-	:rtype: IOStream object
+	:rtype: SSLIOStream object
 
-.. function:: IOStream:connect(address, port, family, verify, callback, errhandler, arg)
+.. function:: SSLIOStream:connect(address, port, family, verify, callback, errhandler, arg)
 
 	Connect to a address without blocking. To successfully use this method it is neccessary to check
 	the return value, and also assign a error handler function. Notice that the verify arugment has
-	been added as opposed to the ``IOStream:connect`` method.
+	been added as opposed to the ``SSLIOStream:connect`` method.
 
 	:param host: The host to connect to. Either hostname or IP.
 	:type host: String

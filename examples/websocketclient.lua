@@ -20,7 +20,7 @@ local turbo = require "turbo"
 turbo.ioloop.instance():add_callback(function()
     turbo.websocket.WebSocketClient("ws://127.0.0.1:8888/ws", {
         on_headers = function(self, headers)
-            -- Review headers recieved from the WebSocket server.
+            -- Review headers received from the WebSocket server.
             -- You can e.g drop the request if the response headers
             -- are not satisfactory with self:close().
         end,
@@ -42,6 +42,7 @@ turbo.ioloop.instance():add_callback(function()
         on_close = function(self)
             -- I am called when connection is closed. Both gracefully and
             -- not gracefully.
+            os.exit(0)
         end,
         on_error = function(self, code, reason)
             -- I am called whenever there is a error with the WebSocket.
