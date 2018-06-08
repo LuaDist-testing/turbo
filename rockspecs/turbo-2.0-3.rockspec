@@ -1,18 +1,10 @@
--- This file was automatically generated for the LuaDist project.
-
 package = "turbo"
-version = "2.0-2"
+version = "2.0-3"
 supported_platforms = {"linux"}
--- LuaDist source
 source = {
-  tag = "2.0-2",
-  url = "git://github.com/LuaDist-testing/turbo.git"
+    url = "git://github.com/kernelsauce/turbo",
+    tag = "v2.0.3"
 }
--- Original source
--- source = {
---     url = "git://github.com/kernelsauce/turbo",
---     tag = "v2.0.2"
--- }
 description = {
     summary = "A networking suite for LuaJIT2, optimized for performance.",
     detailed = [[Turbo.lua is just another framework to create network programs for Linux. It uses kernel
