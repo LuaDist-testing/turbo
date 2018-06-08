@@ -25,18 +25,18 @@ local json = require('turbo.3rdparty.JSON')
 local escape = {} -- escape namespace
 
 --- JSON stringify a table.
--- @param lua_table_or_value Value to JSON encode.
+-- @param t Value to JSON encode.
 -- @note May raise a error if table could not be decoded.
-function escape.json_encode(lua_table_or_value)
-    return json:encode(lua_table_or_value)
+function escape.json_encode(t)
+    return json:encode(t)
 end
 
 --- Decode a JSON string to table.
--- @param json_string_literal (String) JSON enoded string to decode into
+-- @param s (String) JSON enoded string to decode into
 -- Lua primitives.
 -- @return (Table)
-function escape.json_decode(json_string_literal)
-    return json:decode(json_string_literal)
+function escape.json_decode(s)
+    return json:decode(s)
 end
 
 local function _unhex(hex) return string.char(tonumber(hex, 16)) end
@@ -94,7 +94,7 @@ end
 --------------- authored by Jeff Solinsky
 do
     local ffi = require'ffi'
-    local bit = require'bit'
+    local bit = jit and require "bit" or require "bit32"
     local rshift = bit.rshift
     local lshift = bit.lshift
     local bor = bit.bor

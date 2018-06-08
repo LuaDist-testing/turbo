@@ -9,7 +9,7 @@
 -- almost identical API's for the two classes once connected. Both classes
 -- support SSL (wss://).
 --
--- NOTICE: _G.TURBO_SSL MUST be set to true and OpenSSL or axTLS MUST be 
+-- NOTICE: _G.TURBO_SSL MUST be set to true and OpenSSL or axTLS MUST be
 -- installed to use this module.
 --
 -- Copyright 2013 John Abrahamsen
@@ -27,7 +27,7 @@
 -- limitations under the License.
 
 local math =            require "math"
-local bit =             require "bit"
+local bit =             jit and require "bit" or require "bit32"
 local ffi =             require "ffi"
 local log =             require "turbo.log"
 local httputil =        require "turbo.httputil"
@@ -36,33 +36,27 @@ local buffer =          require "turbo.structs.buffer"
 local escape =          require "turbo.escape"
 local util =            require "turbo.util"
 local hash =            require "turbo.hash"
+local platform =        require "turbo.platform"
 local web =             require "turbo.web"
 local async =           require "turbo.async"
 local buffer =          require "turbo.structs.buffer"
 require('turbo.3rdparty.middleclass')
-local ltp_loaded, libturbo_parser = pcall(ffi.load, "tffi_wrap")
-if not ltp_loaded then
-    -- Check /usr/local/lib explicitly also.
-    ltp_loaded, libturbo_parser =
-        pcall(ffi.load, "/usr/local/lib/libtffi_wrap.so")
-    if not ltp_loaded then
-        error("Could not load libtffi_wrap.so.")
-    end
-end
+local libturbo_parser = util.load_libtffi()
 local le = ffi.abi("le")
 local be = not le
 local strf = string.format
 local bor = bit.bor
 math.randomseed(util.gettimeofday())
 
-if jit.version_num >= 20100 then
-    function ENDIAN_SWAP_U64(val)
+local ENDIAN_SWAP_U64
+if jit and jit.version_num >= 20100 then
+    ENDIAN_SWAP_U64 = function(val)
         return bit.bswap(val)
     end
 else
-    -- Only v2.1 support 64bit bit swap.
+    -- Only LuaJIT v2.1 support 64bit bit swap.
     -- Use a native C function instead for v2.0.
-    function ENDIAN_SWAP_U64(val)
+    ENDIAN_SWAP_U64 = function(val)
         return libturbo_parser.turbo_bswap_u64(val)
     end
 end
@@ -81,15 +75,37 @@ ffi.cdef [[
 local _ws_header = ffi.new("struct ws_header")
 local _ws_mask = ffi.new("int32_t[1]")
 
-local function _unmask_payload(mask, data)
-    local ptr = libturbo_parser.turbo_websocket_mask(mask, data, data:len())
-    if ptr ~= nil then
-        local str = ffi.string(ptr, data:len())
-        ffi.C.free(ptr)
+local _unmask_payload
+if platform.__WINDOWS__ then
+    _unmask_payload = function(mask32, data)
+        local i = ffi.new("size_t", 0)
+        local sz = data:len()
+        local buf = ffi.cast("char*", ffi.C.malloc(data:len()))
+        if buf == nil then
+            error("Could not allocate memory for WebSocket frame masking.\
+                  Catastrophic failure.")
+        end
+        data = ffi.cast("char*", data)
+        mask = ffi.cast("char*", mask32)
+        while i < sz do
+            buf[i] = bit.bxor(data[i],  mask[i % 4])
+            i = i + 1
+        end
+        local str = ffi.string(buf, sz)
+        ffi.C.free(buf)
         return str
-    else
-        error("Could not allocate memory for WebSocket frame masking.\
-              Catastrophic failure.")
+    end
+else
+    _unmask_payload = function(mask, data)
+        local ptr = libturbo_parser.turbo_websocket_mask(mask, data, data:len())
+        if ptr ~= nil then
+            local str = ffi.string(ptr, data:len())
+            ffi.C.free(ptr)
+            return str
+        else
+            error("Could not allocate memory for WebSocket frame masking.\
+                  Catastrophic failure.")
+        end
     end
 end
 
@@ -149,6 +165,11 @@ function websocket.WebSocketStream:write_message(msg, binary)
                      binary and
                         websocket.opcode.BINARY or websocket.opcode.TEXT,
                      msg)
+end
+
+--- Send a pong reply to the server.
+function websocket.WebSocketStream:pong(data)
+    self:_send_frame(true, websocket.opcode.PONG, data)
 end
 
 --- Send a ping to the connected client.
@@ -264,14 +285,14 @@ if le then
             _ws_header.len = bit.bor(data_sz,
                                      self.mask_outgoing and 0x80 or 0x0)
             self.stream:write(ffi.string(_ws_header, 2))
-        
+
         -- 16 bit
         elseif data_sz <= 0xffff then
             _ws_header.len = bit.bor(126, self.mask_outgoing and 0x80 or 0x0)
             _ws_header.ext_len.sh = data_sz
             _ws_header.ext_len.sh = ffi.C.htons(_ws_header.ext_len.sh)
             self.stream:write(ffi.string(_ws_header, 4))
-        
+
         -- 64 bit
         else
             _ws_header.len = bit.bor(127, self.mask_outgoing and 0x80 or 0x0)
@@ -279,7 +300,7 @@ if le then
             _ws_header.ext_len.ll = ENDIAN_SWAP_U64(_ws_header.ext_len.ll)
             self.stream:write(ffi.string(_ws_header, 10))
         end
-        
+
         if self.mask_outgoing == true then
             -- Create a random mask.
             ws_mask = ffi.new("unsigned char[4]")
@@ -291,7 +312,7 @@ if le then
             self.stream:write(_unmask_payload(ws_mask, data))
             return
         end
-        
+
         self.stream:write(data)
     end
 elseif be then
@@ -578,9 +599,9 @@ function websocket.WebSocketClient:initialize(address, kwargs)
             http_header:add("Upgrade", "Websocket")
             http_header:add("Sec-WebSocket-Key", websocket_key)
             http_header:add("Sec-WebSocket-Version", "13")
-            -- WebSocket Sub-Protocol handling... 
+            -- WebSocket Sub-Protocol handling...
             if type(self.kwargs.websocket_protocol) == "string" then
-                http_header:add("Sec-WebSocket-Protocol", 
+                http_header:add("Sec-WebSocket-Protocol",
                                 self.kwargs.websocket_protocol)
             elseif self.kwargs.websocket_protocol then
                 error("Invalid type of \"websocket_protocol\" value")
@@ -597,7 +618,7 @@ function websocket.WebSocketClient:initialize(address, kwargs)
     }))
     if _modify_headers_success == false then
         -- Must do this outside callback to HTTPClient to get desired effect.
-        -- In the event of error in "modify_headers" callback _error is already 
+        -- In the event of error in "modify_headers" callback _error is already
         -- called.
         return
     end
@@ -610,28 +631,28 @@ function websocket.WebSocketClient:initialize(address, kwargs)
     if res.code == 101 then
         -- Check accept key.
         local accept_key = res.headers:get("Sec-WebSocket-Accept")
-        assert(accept_key, 
+        assert(accept_key,
                "Missing Sec-WebSocket-Accept header field.")
         local match = escape.base64_encode(
             hash.SHA1(websocket_key..websocket.MAGIC):finalize(), 20)
-        assert(accept_key == match, 
+        assert(accept_key == match,
                "Sec-WebSocket-Accept does not match what was expected.")
         if type(self.kwargs.on_headers) == "function" then
-            if not self:_protected_call("on_headers", 
-                                        self.kwargs.on_headers, 
-                                        self, 
+            if not self:_protected_call("on_headers",
+                                        self.kwargs.on_headers,
+                                        self,
                                         res.headers) then
                 return
             end
             if self:closed() then
-                -- User closed the connection in on_headers callback. Just 
+                -- User closed the connection in on_headers callback. Just
                 -- return as the connection is already closed off.
                 return
             end
         end
     else
         -- Handle error.
-        self:_error(websocket.errors.BAD_HTTP_STATUS, 
+        self:_error(websocket.errors.BAD_HTTP_STATUS,
                     strf("Excpected 101, was %d, can not upgrade.", res.code))
         return
     end
@@ -648,10 +669,10 @@ function websocket.WebSocketClient:_protected_call(name, func, arg, data)
     local status, err = pcall(func, arg, data)
     if status ~= true then
         local err_msg = strf(
-            "WebSocketClient at %p unhandled error in callback \"%s\":\n", 
-            self, 
+            "WebSocketClient at %p unhandled error in callback \"%s\":\n",
+            self,
             name)
-        self:_error(websocket.errors.CALLBACK_ERROR, 
+        self:_error(websocket.errors.CALLBACK_ERROR,
                     err and err_msg .. err or err_msg)
         return false
     end
@@ -669,7 +690,7 @@ function websocket.WebSocketClient:_continue_ws()
     end
 end
 
-function websocket.WebSocketClient:_error(code, msg) 
+function websocket.WebSocketClient:_error(code, msg)
     if self.stream then
         self.stream:close()
     end
@@ -737,9 +758,9 @@ function websocket.WebSocketClient:_handle_opcode(opcode, data)
     if opcode == websocket.opcode.TEXT or
             opcode == websocket.opcode.BINARY then
         if self.kwargs.on_message then
-            self:_protected_call("on_message", 
-                                 self.kwargs.on_message, 
-                                 self, 
+            self:_protected_call("on_message",
+                                 self.kwargs.on_message,
+                                 self,
                                  data)
         end
     elseif opcode == websocket.opcode.CLOSE then
@@ -773,7 +794,7 @@ function websocket.WebSocketClient:_handle_opcode(opcode, data)
     end
 end
 
-function websocket.WebSocketClient:_socket_closed() 
+function websocket.WebSocketClient:_socket_closed()
     log.success(string.format(
         [[[websocket.lua] WebSocketClient closed %s %dms]],
         self.address,

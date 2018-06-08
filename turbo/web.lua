@@ -28,13 +28,20 @@ local httpserver =      require "turbo.httpserver"
 local buffer =          require "turbo.structs.buffer"
 local bufferptr =       require "turbo.structs.bufferptr"
 local escape =          require "turbo.escape"
+local platform =        require "turbo.platform"
 local response_codes =  require "turbo.http_response_codes"
 local mime_types =      require "turbo.mime_types"
 local util =            require "turbo.util"
 local hash =            require "turbo.hash"
-local fs =              require "turbo.fs"
 local socket =          require "turbo.socket_ffi"
 local syscall =         require "turbo.syscall"
+local fs
+if platform.__WINDOWS__ then
+    -- Support for stat'ing in StaticFileHandler on Windows OS.
+    fs = require "lfs"
+else
+    fs = require "turbo.fs"
+end
 require "turbo.3rdparty.middleclass"
 require "turbo.cdef"
 
@@ -81,7 +88,7 @@ function web.RequestHandler:initialize(application, request, url_args, options)
     self:clear()
     if self.request.headers:get("Connection") then
         self.request.connection.stream:set_close_callback(
-            self.on_connection_close, 
+            self.on_connection_close,
             self)
     end
     self.options = options
@@ -136,7 +143,7 @@ function web.RequestHandler:options(...) error(web.HTTPError:new(405)) end
 
 --*************** Input ***************
 
---- Returns the value of the argument with the given name. 
+--- Returns the value of the argument with the given name.
 -- If multiple values are set with the same name, then only one is returned.
 -- For multiple arguments, use get_arguments() instead.
 -- If default value is not given the argument is considered to be required and
@@ -332,11 +339,11 @@ function web.RequestHandler:get_cookie(name, default)
 end
 
 --- Get a signed cookie value from incoming request.
--- If the cookie can not be validated, then an error with a string error 
+-- If the cookie can not be validated, then an error with a string error
 -- is raised.
 -- Hash-based message authentication code (HMAC) is used to be able to verify
--- that the cookie has been created with the "cookie_secret" set in the 
--- Application class kwargs. This is simply verifing that the cookie has been 
+-- that the cookie has been created with the "cookie_secret" set in the
+-- Application class kwargs. This is simply verifing that the cookie has been
 -- signed by your key, IT IS NOT ENCRYPTING DATA.
 -- @param name The name of the cookie to get.
 -- @param default A default value if no cookie is found.
@@ -348,7 +355,6 @@ function web.RequestHandler:get_secure_cookie(name, default, max_age)
     if not cookie then
         return default
     end
-
     local hmac, len, timestamp, value = cookie:match("(%w*)|(%d*)|(%d*)|(.*)")
     assert(tonumber(len) == value:len(), "Cookie value length has changed!")
     assert(hmac:len() == 40, "Could not get secure cookie. Hash to short.")
@@ -358,9 +364,9 @@ function web.RequestHandler:get_secure_cookie(name, default, max_age)
         assert(util.getimeofday() - timestamp < max_age, "Cookie has expired.")
     end
     local hmac_cmp = hash.HMAC(self.application.kwargs.cookie_secret,
-                               string.format("%d|%s|%s", 
-                                             len, 
-                                             tostring(timestamp), 
+                               string.format("%d|%s|%s",
+                                             len,
+                                             tostring(timestamp),
                                              value))
     assert(hmac == hmac_cmp, "Secure cookie does not match hash. \
                               Either the cookie is forged or the cookie secret \
@@ -387,8 +393,8 @@ end
 
 --- Set a signed cookie value to response.
 -- Hash-based message authentication code (HMAC) is used to be able to verify
--- that the cookie has been created with the "cookie_secret" set in the 
--- Application class kwargs. This is simply verifing that the cookie has been 
+-- that the cookie has been created with the "cookie_secret" set in the
+-- Application class kwargs. This is simply verifing that the cookie has been
 -- signed by your key, IT IS NOT ENCRYPTING DATA.
 -- @param name The name of the cookie to set.
 -- @param value The value of the cookie.
@@ -402,14 +408,14 @@ function web.RequestHandler:set_secure_cookie(name, value, domain, expire_hours)
     -- Each column is separated by a pipe.
     -- value length | HMAC hash | timestamp | value
     -- timestamp and value separated by a pipe char is what is being hashed.
-    assert(type(self.application.kwargs.cookie_secret) == "string", 
+    assert(type(self.application.kwargs.cookie_secret) == "string",
            "No cookie secret has been set in the Application class.")
     if type(value) ~= "string" then
         value = tostring(value)
     end
-    local to_hash = string.format("%d|%s|%s", 
-                                  value:len(), 
-                                  tostring(util.gettimeofday()), 
+    local to_hash = string.format("%d|%s|%s",
+                                  value:len(),
+                                  tostring(util.gettimeofday()),
                                   value)
     local cookie = string.format("%s|%s",
                                  hash.HMAC(
@@ -671,7 +677,7 @@ end
 
 function web.RequestHandler:_parse_cookies()
     local cookie_str, cnt = self.request.headers:get("Cookie")
-    local rfc6265pat = '%s*([%w]+)="*([%w%p]+[^%s%;^%,^%\\%"])%s*'
+
     self._cookies_parsed = true
     if cnt == 0 then
         self._cookies = {}
@@ -724,7 +730,13 @@ function web.RequestHandler:_execute()
     end
     self:prepare()
     if not self._finished then
-        self[self.request.method:lower()](self, unpack(self._url_args))
+        -- If there is no URL args then do not unpack as this has a significant
+        -- cost.
+        if self._url_args and #self._url_args > 0 then
+            self[self.request.method:lower()](self, unpack(self._url_args))
+        else
+            self[self.request.method:lower()](self)
+        end
         if self._auto_finish and not self._finished then
             self:finish()
         end
@@ -749,7 +761,7 @@ end
 -- @param path (String) Path to file.
 -- @return 0 + buffer (String) on success, else -1.
 function web._StaticWebCache:read_file(path)
-    local fd, err = io.open(path, "r")
+    local fd, err = io.open(path, "rb")
     if not fd then
         return -1, err
     end
@@ -786,12 +798,12 @@ function web._StaticWebCache:get_file(path)
         if cf[1] == SWCT_CACHE then
             return SWCRC_CACHE, cf[2], cf[3], cf[4], cf[5]
         elseif cf[1] == SWCT_FILE then
-            local file = io.open(path, "r")
+            local file = io.open(path, "rb")
             if not file then
                 log.error(string.format(
                     "[web.lua] Could not open file for reading; %s.",
                     err))
-                return SWCRC_NOT_FOUND    
+                return SWCRC_NOT_FOUND
             end
             return SWCRC_TOO_BIG, cf[2], file, cf[4]
         elseif cf[1] == SWCT_NOFILE then
@@ -800,12 +812,24 @@ function web._StaticWebCache:get_file(path)
     end
 
     -- Not in cache, or opened before.
-    local stat, err = fs.stat(path)
+    local stat, err
+    if not platform.__WINDOWS__ then
+        stat, err = fs.stat(path)
+        if stat == -1 then
+            self.files[path] = {SWCT_NOFILE}
+            return SWCRC_NOT_FOUND -- File not found.
+        end
+    else
+        stat, err = fs.attributes(path)
+        if stat == nil then
+            self.files[path] = {SWCT_NOFILE}
+            return SWCRC_NOT_FOUND -- File not found.
+        end
+        -- Small rewrite of table to make it compatible with Linux stat.
+        stat.st_size = stat.size
+    end
 
-    if stat == -1 then
-        self.files[path] = {SWCT_NOFILE}
-        return SWCRC_NOT_FOUND -- File not found.
-    elseif stat.st_size > STATICWEBCACHE_MAX then
+    if stat.st_size > STATICWEBCACHE_MAX then
         -- File will not be cached because of size.
         -- Open file ptr instead.
         local rc, mime = self:get_mime(path)
@@ -814,7 +838,7 @@ function web._StaticWebCache:get_file(path)
         else
             self.files[path] = {SWCT_FILE, stat}
         end
-        local file, err = io.open(path, "r")
+        local file, err = io.open(path, "rb")
         if not file then
             log.error(string.format(
                 "[web.lua] Could not open file for reading; %s.",
@@ -920,7 +944,7 @@ function web.StaticFileHandler:_send_next_chunk()
     self.__file_data_ref = data -- Make sure a reference to string is kept.
     self.request:write_zero_copy(
         bufferptr(ffi.cast("const char *", data), data:len()),
-        self._send_next_chunk, 
+        self._send_next_chunk,
         self)
 end
 
@@ -961,7 +985,7 @@ function web.StaticFileHandler:get(path)
             -- Client has the most recent file. Do not send :).
             self:set_status(304)
             self:add_header("Etag", sha1)
-            self:finish()            
+            self:finish()
             return
         end
     end
@@ -1086,7 +1110,7 @@ web.Application = class("Application")
 -- Key word arguments supported:
 -- "default_host" = Redirect to this URL if no matching handler is found.
 -- "cookie_secret" = Sequence of bytes used for to sign cookies.
--- "settings" = Global user settings that can be accessed in 
+-- "settings" = Global user settings that can be accessed in
 --     RequestHandler's through self.application.settings
 function web.Application:initialize(handlers, kwargs)
     self.handlers = handlers or {}
@@ -1121,8 +1145,8 @@ end
 -- method.
 -- @param port (Number) Port to bind server to.
 -- @param address (String) Address to bind server to. E.g "127.0.0.1".
--- @param kwargs (Table) Keyword arguments passed on to 
---      ``turbo.httpserver.HTTPServer``. See documentation for that class for 
+-- @param kwargs (Table) Keyword arguments passed on to
+--      ``turbo.httpserver.HTTPServer``. See documentation for that class for
 --      available options.
 function web.Application:listen(port, address, kwargs)
     -- Key word arguments supported:
@@ -1139,7 +1163,7 @@ end
 -- class.
 -- @param request (HTTPRequest instance)
 function web.Application:_get_request_handlers(request)
-    local path = request.path and request.path:lower()
+    local path = request.path
     if not path then
         path = "/"
     end
@@ -1153,7 +1177,6 @@ function web.Application:_get_request_handlers(request)
         end
     end
 end
-
 
 local _str_borders_down = string.rep("▼", 80)
 local _str_borders_up = string.rep("▲", 80)
