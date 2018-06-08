@@ -27,7 +27,7 @@ ALL_LUA_FILES := $(call rwildcard,./,*.lua)
 ALL_LUAC_FILES := $(call rwildcard,./,*.luac)
 MAJVER=  2
 MINVER=  0
-MICVER=  0
+MICVER=  2
 TVERSION= $(MAJVER).$(MINVER).$(MICVER)
 PREFIX ?= /usr/local
 TDEPS= deps
@@ -89,6 +89,7 @@ clean:
 	$(RM) $(INSTALL_TFFI_WRAP_SOSHORT)
 	rm -rf $(PACKAGE_DIR)
 	$(RM) $(ALL_LUAC_FILES)
+	rm -rf *.dSYM
 
 uninstall:
 	@echo "==== Uninstalling Turbo.lua ===="
@@ -112,6 +113,7 @@ install:
 	@echo "==== $(LUAJIT_LIBRARYDIR) and ===="
 	@echo "==== $(LUAJIT_MODULEDIR) ===="
 	$(MKDIR) $(INSTALL_LIB)
+	$(MKDIR) $(INSTALL_BIN)
 	$(MKDIR) $(LUA_MODULEDIR)/turbo
 	$(MKDIR) $(LUAJIT_MODULEDIR)/turbo
 	$(CP_R) turbo/* $(LUA_MODULEDIR)/turbo
